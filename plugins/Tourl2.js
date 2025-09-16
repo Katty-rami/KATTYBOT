@@ -1,20 +1,16 @@
 // plugins/tourl2.js
 // Comando: .tourl / .tourl2
-// Sube el archivo adjunto (o el citado) al CDN de SkyUltraPlus vía API
-// API key (tuya): cambia API_KEY por la de tu cuenta en el panel si es necesario.
+// Sube el adjunto/citado a https://cdn.skyultraplus.com (API)
 
 const path = require("path");
-const fetch = require("node-fetch");            // v2.x
+const fetch = require("node-fetch");
 const FormData = require("form-data");
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 
-// IMPORTANTES: usa el endpoint de API y manda 'name'
-const UPLOAD_ENDPOINT = "https://cdn.skyultraplus.com/api/upload.php";
-const API_KEY = "russellxzomega";
+const UPLOAD_ENDPOINT = "https://cdn.skyultraplus.com/api/upload.php"; // <- API real
+const API_KEY = "TU_API_KEY_AQUI";
 
-/* ================== Helpers ================== */
-
-// Quita wrappers de WhatsApp hasta llegar al nodo real
+/* Helpers */
 function unwrapMessage(msgObj) {
   if (!msgObj) return null;
   if (msgObj.ephemeralMessage?.message) return unwrapMessage(msgObj.ephemeralMessage.message);
@@ -22,35 +18,17 @@ function unwrapMessage(msgObj) {
   if (msgObj.viewOnceMessageV2Extension?.message) return unwrapMessage(msgObj.viewOnceMessageV2Extension.message);
   return msgObj;
 }
-
-// Recolecta todos los contextInfo de un mensaje (para encontrar el quoted)
 function collectContextInfos(msg) {
   const m = unwrapMessage(msg?.message) || {};
   const ctxs = [];
-  const nodes = [
-    m.extendedTextMessage,
-    m.imageMessage,
-    m.videoMessage,
-    m.documentMessage,
-    m.audioMessage,
-    m.stickerMessage,
-    m.buttonsMessage,
-    m.templateMessage,
-  ];
+  const nodes = [m.extendedTextMessage, m.imageMessage, m.videoMessage, m.documentMessage, m.audioMessage, m.stickerMessage, m.buttonsMessage, m.templateMessage];
   for (const n of nodes) if (n?.contextInfo) ctxs.push(n.contextInfo);
   return ctxs;
 }
-
-// Obtiene el mensaje citado (ya desenvuelto) si existe
 function getQuotedMessage(msg) {
-  const ctxs = collectContextInfos(msg);
-  for (const c of ctxs) {
-    if (c?.quotedMessage) return unwrapMessage(c.quotedMessage);
-  }
+  for (const c of collectContextInfos(msg)) if (c?.quotedMessage) return unwrapMessage(c.quotedMessage);
   return null;
 }
-
-// Busca el primer media node disponible
 function findMediaNode(messageLike) {
   const m = unwrapMessage(messageLike) || {};
   const order = [
@@ -63,8 +41,6 @@ function findMediaNode(messageLike) {
   for (const [k, t] of order) if (m[k]) return { type: t, content: m[k] };
   return null;
 }
-
-// Descarga a Buffer usando Baileys
 async function downloadToBuffer(type, content) {
   const stream = await downloadContentFromMessage(content, type);
   let buf = Buffer.alloc(0);
@@ -72,58 +48,29 @@ async function downloadToBuffer(type, content) {
   return buf;
 }
 
-// Saca un "name" para el archivo (API lo requiere)
-function deriveName({ media, args, fallbackFilename }) {
-  // 1) Si el media trae caption, úsalo
-  const cap =
-    media?.content?.caption ||
-    media?.content?.fileName ||
-    media?.content?.fileNameWithExt ||
-    media?.content?.fileNameWithExtension ||
-    "";
-
-  // 2) Si el usuario pasó texto como argumento, úsalo (pero ignora si es URL)
-  const argsText = (args || []).join(" ").trim();
-  const firstArg = (args && args[0]) ? String(args[0]).trim() : "";
-  const firstIsUrl = /^https?:\/\//i.test(firstArg);
-  let label = argsText || cap || fallbackFilename || `archivo_${Date.now()}`;
-
-  if (firstIsUrl) {
-    // Si el primer arg es URL, intenta usar el resto como nombre
-    const rest = (args || []).slice(1).join(" ").trim();
-    if (rest) label = rest;
-  }
-
-  // Limpieza básica como hace el backend: recorta longitud y espacios múltiples
-  label = label.replace(/\s+/g, " ").trim();
-  if (label.length > 120) label = label.slice(0, 120);
-  return label || `archivo_${Date.now()}`;
+function deriveName({ args, caption, origFileName }) {
+  const fromArgs = (args && args.length ? String(args.join(" ")).trim() : "");
+  if (fromArgs) return fromArgs.slice(0, 120);
+  if (caption)  return String(caption).trim().slice(0, 120);
+  const base = (origFileName || "").replace(/\.[^.]+$/, "").trim();
+  if (base) return base.slice(0, 120);
+  const ts = new Date(); const pad=n=>String(n).padStart(2,'0');
+  return `archivo ${ts.getFullYear()}-${pad(ts.getMonth()+1)}-${pad(ts.getDate())} ${pad(ts.getHours())}:${pad(ts.getMinutes())}`;
 }
 
-// Extrae una posible URL desde un texto cualquiera
-function extractUrlFromText(t = "") {
-  const m = String(t).match(/https?:\/\/[^\s"'<>]+/i);
-  return m ? m[0] : null;
-}
-
-/* ================== Handler principal ================== */
+/* Handler */
 module.exports = async (msg, { conn, args }) => {
   const chatId = msg.key.remoteJid;
-
-  // Reacción inicial
   try { await conn.sendMessage(chatId, { react: { text: "⏳", key: msg.key } }); } catch {}
 
-  // Preferir media citado; si no hay, usar el propio mensaje
   let target = getQuotedMessage(msg) || msg.message;
-
-  // Media node
-  let media = findMediaNode(target);
+  let media  = findMediaNode(target);
 
   let buffer = null;
   let filename = `upload_${Date.now()}`;
   let contentType = "application/octet-stream";
+  let caption = unwrapMessage(target)?.extendedTextMessage?.text || "";
 
-  // Descarga media si existe
   try {
     if (media) {
       filename =
@@ -131,122 +78,76 @@ module.exports = async (msg, { conn, args }) => {
         media.content?.fileNameWithExt ||
         media.content?.fileNameWithExtension ||
         filename;
-
       contentType = media.content?.mimetype || contentType;
+      caption = media.content?.caption || caption;
       buffer = await downloadToBuffer(media.type, media.content);
     }
   } catch (e) {
     console.error("[tourl2] error descargando media:", e);
   }
 
-  // Si no hubo media, permite pasar una URL como argumento
+  // Si no hay media, permitir URL como arg
   if (!buffer) {
     const maybeUrl = args && args[0] ? String(args[0]).trim() : null;
     if (maybeUrl && /^https?:\/\//i.test(maybeUrl)) {
       try {
         const r = await fetch(maybeUrl);
-        if (!r.ok) throw new Error(`No se pudo descargar la URL (HTTP ${r.status})`);
+        if (!r.ok) throw new Error(`No se pudo descargar la URL (${r.status})`);
         buffer = await r.buffer();
         contentType = r.headers.get("content-type") || contentType;
-
         const u = new URL(maybeUrl);
         const base = path.basename(u.pathname) || "archivo";
         filename = base.includes(".") ? base : `${base}_${Date.now()}`;
       } catch (e) {
-        await conn.sendMessage(chatId, {
-          text: `❌ No encontré archivo en el mensaje ni pude descargar la URL: ${e.message}`,
-          quoted: msg
-        });
+        await conn.sendMessage(chatId, { text: `❌ No encontré archivo ni pude bajar la URL: ${e.message}`, quoted: msg });
         try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
         return;
       }
     } else {
-      await conn.sendMessage(chatId, {
-        text: "❌ No detecté archivo en el mensaje ni en la cita. Responde un archivo o adjunta uno, o pasa una URL.",
-        quoted: msg
-      });
+      await conn.sendMessage(chatId, { text: "❌ No detecté archivo. Responde un archivo o pasa una URL.", quoted: msg });
       try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
       return;
     }
   }
 
-  // Derivar un "name" para el API
-  const nameForApi = deriveName({ media, args, fallbackFilename: filename });
-
-  // Construir form
+  // ===== Subir =====
   const form = new FormData();
-  form.append("name", nameForApi);                              // ← REQUERIDO por la API
-  form.append("file", buffer, { filename, contentType });       // archivo
+  form.append("file", buffer, { filename, contentType });
+  form.append("name", deriveName({ args, caption, origFileName: filename })); // ← IMPORTANTE
 
-  // (Opcional) enviar quién subió
-  const sender = msg.key.participant || msg.key.remoteJid || "";
-  const numero = String(sender).replace(/\D/g, "");
-  form.append("uploader", numero);
-
-  // Subir al API
-  let resp, text, json = null;
+  let resp, json, text;
   try {
     resp = await fetch(UPLOAD_ENDPOINT, {
       method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "X-API-Key": API_KEY,     // ← La API lo espera así (también acepta variantes)
-        ...form.getHeaders(),
-      },
+      headers: { "x-api-key": API_KEY, ...form.getHeaders() },
       body: form,
       timeout: 120000,
     });
-
     text = await resp.text();
-    try { json = JSON.parse(text); } catch {
-      json = { raw: text }; // por si llega HTML u otro
-    }
+    try { json = JSON.parse(text); } catch { json = { text }; }
   } catch (e) {
-    console.error("[tourl2] error fetch upload:", e);
-    await conn.sendMessage(chatId, { text: `❌ Error al subir el archivo: ${e.message}`, quoted: msg });
+    await conn.sendMessage(chatId, { text: `❌ Error al subir: ${e.message}`, quoted: msg });
     try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
     return;
   }
 
-  // Manejo de errores HTTP
-  if (!resp.ok) {
-    const hint = typeof json?.error === "string" ? `\n• Detalle: ${json.error}` : "";
-    await conn.sendMessage(chatId, {
-      text: `❌ Upload falló (HTTP ${resp.status}).${hint}`,
-      quoted: msg
-    });
+  if (!resp.ok || !json || json.ok === false) {
+    const msgErr = (json && (json.error || json.message)) ? json.error || json.message : `HTTP ${resp?.status}`;
+    await conn.sendMessage(chatId, { text: `❌ Upload falló: ${msgErr}\n${text ? "Respuesta:\n```"+String(text).slice(0,900)+"```" : ""}`, quoted: msg });
     try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
     return;
   }
 
-  // Extraer URL según el formato real del API que nos pasaste
-  // Respuesta esperada: { ok: true, file: { url, name, mime, orig } }
-  let url =
-    json?.file?.url ||
-    json?.url ||
-    json?.data?.url ||
-    json?.result?.url ||
-    extractUrlFromText(text) ||
-    null;
-
+  // URL final (formato de nuestra API)
+  const url = json?.file?.url || json?.url || json?.data?.url || null;
   if (!url) {
-    await conn.sendMessage(chatId, {
-      text:
-        `✅ Archivo subido, pero no pude identificar la URL en la respuesta.\n` +
-        `Respuesta completa:\n\`\`\`${(typeof json === "string" ? json : JSON.stringify(json, null, 2))}\`\`\``,
-      quoted: msg
-    });
+    await conn.sendMessage(chatId, { text: `✅ Subido pero no encontré la URL.\nRespuesta:\n\`\`\`${text?.slice(0,900)}\`\`\``, quoted: msg });
     try { await conn.sendMessage(chatId, { react: { text: "✅", key: msg.key } }); } catch {}
     return;
   }
 
-  // OK
-  await conn.sendMessage(chatId, {
-    text: `✅ Archivo subido:\n${url}`,
-    quoted: msg
-  });
+  await conn.sendMessage(chatId, { text: `✅ Archivo subido:\n${url}`, quoted: msg });
   try { await conn.sendMessage(chatId, { react: { text: "✅", key: msg.key } }); } catch {}
 };
 
-// Alias
 module.exports.command = ["tourl2", "tourl"];
