@@ -1,16 +1,13 @@
-// plugins/tourl2.js
-// Comando: .tourl / .tourl2
-// Sube el adjunto/citado a https://cdn.skyultraplus.com (API)
-
+// plugins/tourl2.js  — FIX
 const path = require("path");
 const fetch = require("node-fetch");
 const FormData = require("form-data");
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 
-const UPLOAD_ENDPOINT = "https://cdn.skyultraplus.com/api/upload.php"; // <- API real
-const API_KEY = "b40fb2626f36ddb3a2b6022a1543888fdb7cfdf8";
+const UPLOAD_ENDPOINT = "https://cdn.skyultraplus.com/upload.php"; // 👈 importante .php
+const API_KEY = "russellxzomega";
 
-/* Helpers */
+// Helpers (igual que antes)
 function unwrapMessage(msgObj) {
   if (!msgObj) return null;
   if (msgObj.ephemeralMessage?.message) return unwrapMessage(msgObj.ephemeralMessage.message);
@@ -21,7 +18,7 @@ function unwrapMessage(msgObj) {
 function collectContextInfos(msg) {
   const m = unwrapMessage(msg?.message) || {};
   const ctxs = [];
-  const nodes = [m.extendedTextMessage, m.imageMessage, m.videoMessage, m.documentMessage, m.audioMessage, m.stickerMessage, m.buttonsMessage, m.templateMessage];
+  const nodes = [ m.extendedTextMessage, m.imageMessage, m.videoMessage, m.documentMessage, m.audioMessage, m.stickerMessage, m.buttonsMessage, m.templateMessage ];
   for (const n of nodes) if (n?.contextInfo) ctxs.push(n.contextInfo);
   return ctxs;
 }
@@ -48,45 +45,30 @@ async function downloadToBuffer(type, content) {
   return buf;
 }
 
-function deriveName({ args, caption, origFileName }) {
-  const fromArgs = (args && args.length ? String(args.join(" ")).trim() : "");
-  if (fromArgs) return fromArgs.slice(0, 120);
-  if (caption)  return String(caption).trim().slice(0, 120);
-  const base = (origFileName || "").replace(/\.[^.]+$/, "").trim();
-  if (base) return base.slice(0, 120);
-  const ts = new Date(); const pad=n=>String(n).padStart(2,'0');
-  return `archivo ${ts.getFullYear()}-${pad(ts.getMonth()+1)}-${pad(ts.getDate())} ${pad(ts.getHours())}:${pad(ts.getMinutes())}`;
-}
-
-/* Handler */
+/* ——— Handler ——— */
 module.exports = async (msg, { conn, args }) => {
   const chatId = msg.key.remoteJid;
   try { await conn.sendMessage(chatId, { react: { text: "⏳", key: msg.key } }); } catch {}
 
+  // Preferir citado
   let target = getQuotedMessage(msg) || msg.message;
-  let media  = findMediaNode(target);
+  let media = findMediaNode(target);
 
   let buffer = null;
   let filename = `upload_${Date.now()}`;
   let contentType = "application/octet-stream";
-  let caption = unwrapMessage(target)?.extendedTextMessage?.text || "";
 
   try {
     if (media) {
-      filename =
-        media.content?.fileName ||
-        media.content?.fileNameWithExt ||
-        media.content?.fileNameWithExtension ||
-        filename;
+      filename = media.content?.fileName || media.content?.fileNameWithExt || media.content?.fileNameWithExtension || filename;
       contentType = media.content?.mimetype || contentType;
-      caption = media.content?.caption || caption;
       buffer = await downloadToBuffer(media.type, media.content);
     }
   } catch (e) {
     console.error("[tourl2] error descargando media:", e);
   }
 
-  // Si no hay media, permitir URL como arg
+  // Si no hay media, permitir URL en args[0]
   if (!buffer) {
     const maybeUrl = args && args[0] ? String(args[0]).trim() : null;
     if (maybeUrl && /^https?:\/\//i.test(maybeUrl)) {
@@ -99,49 +81,58 @@ module.exports = async (msg, { conn, args }) => {
         const base = path.basename(u.pathname) || "archivo";
         filename = base.includes(".") ? base : `${base}_${Date.now()}`;
       } catch (e) {
-        await conn.sendMessage(chatId, { text: `❌ No encontré archivo ni pude bajar la URL: ${e.message}`, quoted: msg });
+        await conn.sendMessage(chatId, { text: `❌ No encontré archivo ni pude descargar la URL: ${e.message}`, quoted: msg });
         try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
         return;
       }
     } else {
-      await conn.sendMessage(chatId, { text: "❌ No detecté archivo. Responde un archivo o pasa una URL.", quoted: msg });
+      await conn.sendMessage(chatId, { text: "❌ Responde un archivo o pasa una URL para subir.", quoted: msg });
       try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
       return;
     }
   }
 
-  // ===== Subir =====
+  // Derivar 'name' (sin extensión, limpio)
+  const baseNoExt = filename.replace(/\.[^.]+$/,'').slice(0,120) || `archivo_${Date.now()}`;
+
+  // Subir
   const form = new FormData();
   form.append("file", buffer, { filename, contentType });
-  form.append("name", deriveName({ args, caption, origFileName: filename })); // ← IMPORTANTE
+  form.append("name", baseNoExt);             // 👈 REQUERIDO por el backend (o lo inferirá si olvidamos)
+  form.append("uploader", (msg.key.participant || msg.key.remoteJid || "").replace(/\D/g,'')); // opcional
 
-  let resp, json, text;
+  let resp, text;
   try {
     resp = await fetch(UPLOAD_ENDPOINT, {
       method: "POST",
-      headers: { "x-api-key": API_KEY, ...form.getHeaders() },
+      headers: { "x-api-key": API_KEY, ...form.getHeaders() }, // 👈 API KEY
       body: form,
       timeout: 120000,
     });
     text = await resp.text();
-    try { json = JSON.parse(text); } catch { json = { text }; }
   } catch (e) {
     await conn.sendMessage(chatId, { text: `❌ Error al subir: ${e.message}`, quoted: msg });
     try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
     return;
   }
 
-  if (!resp.ok || !json || json.ok === false) {
-    const msgErr = (json && (json.error || json.message)) ? json.error || json.message : `HTTP ${resp?.status}`;
-    await conn.sendMessage(chatId, { text: `❌ Upload falló: ${msgErr}\n${text ? "Respuesta:\n```"+String(text).slice(0,900)+"```" : ""}`, quoted: msg });
+  let json = null;
+  try { json = JSON.parse(text); } catch { json = { text }; }
+
+  if (!resp.ok || json?.ok === false) {
+    const err = (json && (json.error || json.hint)) || `HTTP ${resp.status}`;
+    await conn.sendMessage(chatId, { text: `❌ Upload falló: ${err}`, quoted: msg });
     try { await conn.sendMessage(chatId, { react: { text: "❌", key: msg.key } }); } catch {}
     return;
   }
 
-  // URL final (formato de nuestra API)
-  const url = json?.file?.url || json?.url || json?.data?.url || null;
+  // La URL correcta está en file.url
+  let url = json?.file?.url || json?.url || json?.data?.url || null;
+  if (!url && typeof json?.text === "string" && /^https?:\/\//.test(json.text.trim())) url = json.text.trim();
+  if (!url && typeof json === "string" && /^https?:\/\//.test(json.trim())) url = json.trim();
+
   if (!url) {
-    await conn.sendMessage(chatId, { text: `✅ Subido pero no encontré la URL.\nRespuesta:\n\`\`\`${text?.slice(0,900)}\`\`\``, quoted: msg });
+    await conn.sendMessage(chatId, { text: `✅ Subido pero no encontré URL en la respuesta:\n\`\`\`${text}\`\`\``, quoted: msg });
     try { await conn.sendMessage(chatId, { react: { text: "✅", key: msg.key } }); } catch {}
     return;
   }
@@ -150,4 +141,4 @@ module.exports = async (msg, { conn, args }) => {
   try { await conn.sendMessage(chatId, { react: { text: "✅", key: msg.key } }); } catch {}
 };
 
-module.exports.command = ["tourl2", "tourl"];
+module.exports.command = ["tourl2","tourl"];
