@@ -4,7 +4,7 @@ const fetch = require("node-fetch");
 const FormData = require("form-data");
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 
-const UPLOAD_ENDPOINT = "https://cdn.skyultraplus.com/upload.php"; // 👈 importante .php
+const UPLOAD_ENDPOINT = "https://cdn.skyultraplus.com/profile.php"; // 👈 importante .php
 const API_KEY = "russellxzomega";
 
 // Helpers (igual que antes)
