@@ -8,7 +8,7 @@ const FormData = require("form-data");
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 
 const UPLOAD_ENDPOINT = "https://cdn.skyultraplus.com/api/upload.php"; // <- API real
-const API_KEY = "TU_API_KEY_AQUI";
+const API_KEY = "b40fb2626f36ddb3a2b6022a1543888fdb7cfdf8";
 
 /* Helpers */
 function unwrapMessage(msgObj) {
