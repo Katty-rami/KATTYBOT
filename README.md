@@ -47,7 +47,7 @@
 </p>
 
 > 🛰️ *La Suki Bot está alojada en:*  
-🔗 [`https://dash.skyultraplus.com`](https://paymenter.skyultraplus.com)
+🔗 [`https://dash.skyultraplus.com`](https://dash.skyultraplus.com)
 
 ---
 
