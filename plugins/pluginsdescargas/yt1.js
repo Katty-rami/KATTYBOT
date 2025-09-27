@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const API_BASE = process.env.API_BASE || "https://russellskyapi.ultraplus.click";
-const API_KEY  = process.env.API_KEY  || "PON_AQUI_TU_APIKEY"; // prod: usa variables de entorno
+const API_KEY  = process.env.API_KEY  || "Russellxz"; // prod: usa variables de entorno
 
 const handler = async (msg, { conn, args, command }) => {
   const jid = msg.key.remoteJid;
