@@ -55,7 +55,7 @@ const handler = async (msg, { conn, args, command }) => {
     });
 
     const sizeMB = fs.statSync(filePath).size / (1024 * 1024);
-    if (sizeMB > 99) {
+    if (sizeMB > 1024) {
       fs.unlinkSync(filePath);
       await conn.sendMessage(jid, { text: `❌ Archivo de ${sizeMB.toFixed(2)}MB excede 99MB.` }, { quoted: msg });
       await conn.sendMessage(jid, { react: { text: "❌", key: msg.key } });
