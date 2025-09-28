@@ -1,7 +1,7 @@
 // comandos/tiktok2.js
 const axios = require("axios");
 
-const API_BASE = process.env.API_BASE || "https://russellskyapi.ultraplus.click";
+const API_BASE = process.env.API_BASE || "https://api-sky.ultraplus.click";
 const API_KEY  = process.env.API_KEY  || "Russellxz"; // tu key
 
 const handler = async (msg, { conn, args, command }) => {
