@@ -3,7 +3,7 @@ const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 
-const API_BASE = process.env.API_BASE || "https://russellskyapi.ultraplus.click";
+const API_BASE = process.env.API_BASE || "https://api-sky.ultraplus.click";
 const API_KEY  = process.env.API_KEY  || "Russellxz";
 
 function isYouTube(u){
