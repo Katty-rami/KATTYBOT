@@ -1,4 +1,4 @@
-<h1 align="center">🦋 LA SUKI BOT 🦋</h1>
+<h1 align="center">✨ KATTY BOT ✨</h1>
 
 <p align="center">
   <i>Tu bot de WhatsApp con inteligencia, estilo y funciones automáticas para tus grupos.</i>
